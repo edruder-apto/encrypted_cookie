@@ -1,12 +1,13 @@
 require 'rack'
 require 'encrypted_cookie/encryptor'
+require 'multi_json'
 
 module Rack
   module Session
     # Rack::Session::EncryptedCookie provides AES-256-encrypted, tamper-proof
     # cookie-based session management.
     #
-    # The session is Marshal'd, encrypted and HMAC'd.
+    # The session is JSON'd, encrypted and HMAC'd.
     #
     # Example:
     #
@@ -53,7 +54,7 @@ module Rack
 
       def remove_expiration(session_data)
         expires = session_data.delete(EXPIRES)
-        if expires and expires < Time.now
+        if expires && Time.at(expires) < Time.now # expires is a float, with sub-second precision
           session_data.clear
         end
       end
@@ -64,7 +65,7 @@ module Rack
 
         session_data = request.cookies[@key]
         session_data = @encryptor.decrypt(session_data)
-        session_data = Marshal.load(session_data)
+        session_data = MultiJson.load(session_data)
         remove_expiration(session_data)
 
         env["rack.session"] = session_data
@@ -75,7 +76,7 @@ module Rack
       def add_expiration(session_data, options)
         if options[:time_to_live] && !session_data.key?(EXPIRES)
           expires = Time.now + options[:time_to_live]
-          session_data.merge!({EXPIRES => expires})
+          session_data.merge!(EXPIRES => expires.to_f) # add expires as a float to preserve sub-second precision
         end
       end
 
@@ -84,7 +85,7 @@ module Rack
 
         session_data = env["rack.session"]
         add_expiration(session_data, options)
-        session_data = Marshal.dump(session_data)
+        session_data = MultiJson.dump(session_data)
         session_data = @encryptor.encrypt(session_data)
 
         if session_data.size > (4096 - @key.size)
